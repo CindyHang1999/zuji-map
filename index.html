@@ -1026,6 +1026,12 @@ function renderProvinceTree() {
   refreshProvBadges();
 }
 
+// ===== 判断是否直辖市 =====
+function isDirectMunicipality(adcode) {
+  const prefix = String(adcode).slice(0, 2);
+  return prefix === '11' || prefix === '12' || prefix === '31' || prefix === '50';
+}
+
 // ===== 展开省份 =====
 function toggleProvince(prov, row, cityList) {
   if (row.classList.contains('open')) {
@@ -1035,6 +1041,36 @@ function toggleProvince(prov, row, cityList) {
   }
   row.classList.add('open', 'active');
   cityList.classList.add('open');
+
+  if (isDirectMunicipality(prov.adcode)) {
+    // 直辖市：直接显示区县
+    if (S.countyCache[prov.adcode]) { renderCountyList(prov, prov, cityList, 'county-row', 38); return; }
+    if (S.loadingCounties.has(prov.adcode)) return;
+    S.loadingCounties.add(prov.adcode);
+    cityList.innerHTML = '<div class="loading-row"><div class="mini-spinner"></div>加载中…</div>';
+    fetchGeoJSON(prov.adcode, data => {
+      S.loadingCounties.delete(prov.adcode);
+      const features = data.features || [];
+      S.countyCache[prov.adcode] = features.map(f => ({
+        adcode: f.properties.adcode,
+        name: f.properties.name,
+      }));
+      features.forEach(f => {
+        if (!S.info[f.properties.adcode]) {
+          S.info[f.properties.adcode] = {
+            name: f.properties.name,
+            province: prov.name,
+            city: prov.name,
+            provAdcode: prov.adcode,
+            cityAdcode: prov.adcode,
+          };
+        }
+      });
+      save();
+      renderCountyList(prov, prov, cityList, 'county-row', 38);
+    });
+    return;
+  }
 
   if (S.cityCache[prov.adcode]) { renderCities(prov, cityList); return; }
   if (S.loadingCities.has(prov.adcode)) return;
@@ -1116,22 +1152,25 @@ function toggleCity(prov, city, row, countyList) {
   });
 }
 
-function renderCounties(prov, city, container) {
-  const counties = S.countyCache[city.adcode] || [];
+function renderCountyList(prov, city, container, rowClass, padLeft) {
+  const key = city.adcode;
+  const counties = S.countyCache[key] || [];
   container.innerHTML = '';
   if (!counties.length) { container.innerHTML = '<div class="empty-hint">暂无下级区划</div>'; return; }
 
   const progress = document.createElement('div');
   progress.className = 'prov-progress';
-  progress.innerHTML = '<div class="prov-progress-bar" id="prog-' + city.adcode + '" style="width:0%"></div>';
+  progress.style.marginLeft = padLeft + 'px';
+  progress.innerHTML = '<div class="prov-progress-bar" id="prog-' + key + '" style="width:0%"></div>';
   container.appendChild(progress);
 
   counties.forEach(county => {
     const checked = S.visited.has(county.adcode);
     const row = document.createElement('div');
-    row.className = 'county-row' + (checked ? ' checked' : '');
+    row.className = rowClass + (checked ? ' checked' : '');
     row.id = 'cnty-row-' + county.adcode;
     row.dataset.adcode = county.adcode;
+    row.style.paddingLeft = padLeft + 'px';
     row.innerHTML = `
       <div class="county-checkbox">${checked ? '✓' : ''}</div>
       <span class="county-name">${county.name}</span>
@@ -1142,7 +1181,11 @@ function renderCounties(prov, city, container) {
     });
     container.appendChild(row);
   });
-  updateCityProgress(city.adcode);
+  updateCityProgress(key);
+}
+
+function renderCounties(prov, city, container) {
+  renderCountyList(prov, city, container, 'county-row', 58);
 }
 
 function onCountyToggle(prov, city, county, row) {
@@ -1172,46 +1215,89 @@ function doSearch(q) {
     return;
   }
 
-  const results = [];
+  resultsEl.classList.add('visible');
+  treeEl.style.display = 'none';
+  resultsEl.innerHTML = '<div class="loading-row"><div class="mini-spinner"></div>搜索中…</div>';
+
   const seen = new Set();
+  const results = [];
+
+  // 1. 搜本地 countyCache
   for (const [, counties] of Object.entries(S.countyCache)) {
     for (const c of counties) {
       if (seen.has(c.adcode)) continue;
       if (c.name.includes(q)) {
         seen.add(c.adcode);
         const info = S.info[c.adcode];
-        results.push({
-          adcode: c.adcode,
-          name: c.name,
-          path: info ? info.province + ' · ' + info.city : '',
-          checked: S.visited.has(c.adcode),
-        });
+        results.push({ adcode: c.adcode, name: c.name, path: info ? info.province + ' · ' + info.city : '', checked: S.visited.has(c.adcode) });
       }
     }
   }
 
-  resultsEl.innerHTML = results.length
-    ? results.slice(0, 30).map(r => `
-      <div class="search-item ${r.checked ? 'checked' : ''}" data-adcode="${r.adcode}">
-        <div class="s-check">${r.checked ? '✓' : ''}</div>
-        <span class="s-name">${r.name}</span>
-        <span class="s-path">${r.path}</span>
-      </div>`).join('')
-    : '<div class="empty-hint">没有找到匹配的县/区</div>';
+  // 2. 搜本地 cityCache + info
+  for (const adcode of Object.keys(S.info)) {
+    if (seen.has(adcode)) continue;
+    const info = S.info[adcode];
+    if (info && info.name && info.name.includes(q)) {
+      seen.add(adcode);
+      results.push({ adcode, name: info.name, path: (info.province + ' · ' + info.city).replace(/^ · /,''), checked: S.visited.has(adcode) });
+    }
+  }
 
-  resultsEl.querySelectorAll('.search-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const adcode = item.dataset.adcode;
-      setVisited(adcode, !S.visited.has(adcode));
-      const checked = S.visited.has(adcode);
-      item.classList.toggle('checked', checked);
-      item.querySelector('.s-check').textContent = checked ? '✓' : '';
-      selectByAdcode(adcode);
+  function renderNow() {
+    resultsEl.innerHTML = results.length
+      ? results.slice(0, 30).map(r => `
+        <div class="search-item ${r.checked ? 'checked' : ''}" data-adcode="${r.adcode}">
+          <div class="s-check">${r.checked ? '✓' : ''}</div>
+          <span class="s-name">${r.name}</span>
+          <span class="s-path">${r.path}</span>
+        </div>`).join('')
+      : '<div class="empty-hint">没有找到匹配的县/区<br><small>试试展开省份后再搜索</small></div>';
+
+    resultsEl.querySelectorAll('.search-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const adcode = item.dataset.adcode;
+        if (!S.info[adcode]) {
+          S.info[adcode] = { name: item.querySelector('.s-name').textContent, province: '', city: '', provAdcode: adcode.slice(0,2)+'0000', cityAdcode: adcode.slice(0,4)+'00' };
+        }
+        setVisited(adcode, !S.visited.has(adcode));
+        const checked = S.visited.has(adcode);
+        item.classList.toggle('checked', checked);
+        item.querySelector('.s-check').textContent = checked ? '✓' : '';
+        selectByAdcode(adcode);
+      });
+    });
+  }
+
+  if (results.length >= 5) { renderNow(); return; }
+
+  // 3. 后备：搜索省份级数据
+  let pending = S.provData.length, done = 0;
+  S.provData.forEach(prov => {
+    fetchGeoJSON(prov.adcode, data => {
+      done++;
+      const features = data.features || [];
+      const isMun = isDirectMunicipality(prov.adcode);
+      features.forEach(f => {
+        const a = f.properties.adcode, n = f.properties.name;
+        if (!a || seen.has(a) || !n.includes(q)) return;
+        seen.add(a);
+        const info = S.info[a] || {};
+        results.push({
+          adcode: a,
+          name: n,
+          path: prov.name + (isMun ? '' : ' · ' + (info.city || n)),
+          checked: S.visited.has(a),
+        });
+        // 如果还没 info，记录一下
+        if (!S.info[a]) {
+          S.info[a] = { name: n, province: prov.name, city: isMun ? prov.name : (info.city || ''), provAdcode: prov.adcode, cityAdcode: isMun ? prov.adcode : a.slice(0,4)+'00' };
+        }
+      });
+      if (done === pending) { save(); renderNow(); }
+      else if (results.length >= 5 && done > 3) { renderNow(); }
     });
   });
-
-  resultsEl.classList.add('visible');
-  treeEl.style.display = 'none';
 }
 
 // ===== 同步勾选 =====
