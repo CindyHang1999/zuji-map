@@ -1,0 +1,1642 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>我的足迹地图</title>
+
+  <!-- 高德地图 JS API 2.0 -->
+  <script src="https://webapi.amap.com/maps?v=2.0&key=YOUR_AMAP_KEY&plugin=AMap.DistrictSearch,AMap.Geocoder"></script>
+
+  <style>
+    /* ===== 全局重置与变量 ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #0f1117;
+      --panel-bg:     #1a1d27;
+      --panel-bg2:    #13151f;
+      --panel-border: #2a2d3e;
+      --accent:       #6c63ff;
+      --accent-glow:  rgba(108,99,255,.35);
+      --accent2:      #ff6b9d;
+      --text:         #e8eaf0;
+      --text-dim:     #8b8fa8;
+      --mark-fill:    rgba(108,99,255,.45);
+      --mark-stroke:  #6c63ff;
+      --hover-fill:   rgba(255,107,157,.35);
+      --hover-stroke: #ff6b9d;
+      --radius:       12px;
+      --shadow:       0 8px 32px rgba(0,0,0,.5);
+      --sidebar-w:    300px;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    /* ===== 顶层布局 ===== */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* ===== 顶部标题栏 ===== */
+    #header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--panel-border);
+      z-index: 100;
+      flex-shrink: 0;
+    }
+
+    #header .logo { font-size: 20px; }
+
+    #header h1 {
+      font-size: 17px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: 1px;
+      white-space: nowrap;
+    }
+
+    #header .spacer { flex: 1; }
+
+    /* 统计徽章 */
+    .stat-badge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: linear-gradient(135deg, rgba(108,99,255,.18), rgba(255,107,157,.12));
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 5px 12px;
+      min-width: 60px;
+    }
+    .stat-badge .num {
+      font-size: 18px;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.1;
+    }
+    .stat-badge .lbl {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-top: 1px;
+      white-space: nowrap;
+    }
+
+    /* 按钮 */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--panel-border);
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all .2s;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn:hover {
+      border-color: var(--accent);
+      color: var(--text);
+      background: rgba(108,99,255,.1);
+    }
+    .btn.danger:hover {
+      border-color: #ff4d6d;
+      color: #ff4d6d;
+      background: rgba(255,77,109,.08);
+    }
+    .btn.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(108,99,255,.12);
+    }
+
+    /* ===== 内容区（侧边栏 + 地图） ===== */
+    #content {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* ===== 侧边栏 ===== */
+    #sidebar {
+      width: var(--sidebar-w);
+      background: var(--panel-bg2);
+      border-right: 1px solid var(--panel-border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      overflow: hidden;
+      transition: width .3s ease, opacity .3s ease;
+      z-index: 50;
+    }
+
+    #sidebar.collapsed {
+      width: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* 侧边栏头部 */
+    #sidebar-header {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--panel-border);
+      flex-shrink: 0;
+    }
+
+    #sidebar-header h2 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 10px;
+    }
+
+    /* 搜索框 */
+    #search-wrap {
+      position: relative;
+    }
+    #search-input {
+      width: 100%;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 7px 32px 7px 10px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    #search-input::placeholder { color: var(--text-dim); }
+    #search-input:focus { border-color: var(--accent); }
+    #search-clear {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      display: none;
+      padding: 2px;
+    }
+    #search-clear.visible { display: block; }
+
+    /* 侧边栏主体 */
+    #sidebar-body {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    #sidebar-body::-webkit-scrollbar { width: 4px; }
+    #sidebar-body::-webkit-scrollbar-track { background: transparent; }
+    #sidebar-body::-webkit-scrollbar-thumb { background: var(--panel-border); border-radius: 2px; }
+
+    /* 搜索结果 */
+    #search-results {
+      display: none;
+      padding: 4px 0;
+    }
+    #search-results.visible { display: block; }
+
+    .search-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      transition: background .15s;
+      border-bottom: 1px solid rgba(42,45,62,.5);
+    }
+    .search-item:hover { background: rgba(108,99,255,.08); }
+    .search-item .s-name { font-size: 13px; color: var(--text); }
+    .search-item .s-path { font-size: 11px; color: var(--text-dim); flex: 1; }
+    .search-item .s-check {
+      width: 16px; height: 16px;
+      border-radius: 4px;
+      border: 1.5px solid var(--panel-border);
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .15s;
+      font-size: 10px;
+    }
+    .search-item.checked .s-check {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* 省份树 */
+    #province-tree { display: block; }
+
+    /* 省份行 */
+    .prov-row {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      padding: 9px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(42,45,62,.4);
+      transition: background .15s;
+      user-select: none;
+    }
+    .prov-row:hover { background: rgba(108,99,255,.07); }
+    .prov-row.active { background: rgba(108,99,255,.12); }
+
+    .prov-arrow {
+      width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      font-size: 10px;
+      transition: transform .2s;
+      flex-shrink: 0;
+      margin-right: 6px;
+    }
+    .prov-row.open .prov-arrow { transform: rotate(90deg); }
+
+    .prov-name {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .prov-badge {
+      font-size: 10px;
+      color: var(--accent);
+      background: rgba(108,99,255,.15);
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-weight: 600;
+      display: none;
+    }
+    .prov-badge.visible { display: inline; }
+
+    /* 城市列表 */
+    .city-list {
+      display: none;
+      background: rgba(0,0,0,.15);
+    }
+    .city-list.open { display: block; }
+
+    /* 城市行 */
+    .city-row {
+      display: flex;
+      align-items: center;
+      padding: 7px 14px 7px 38px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(42,45,62,.25);
+      transition: background .15s;
+      user-select: none;
+    }
+    .city-row:hover { background: rgba(108,99,255,.07); }
+    .city-row.active { background: rgba(108,99,255,.1); }
+
+    .city-arrow {
+      width: 14px;
+      height: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      font-size: 9px;
+      transition: transform .2s;
+      flex-shrink: 0;
+      margin-right: 6px;
+    }
+    .city-row.open .city-arrow { transform: rotate(90deg); }
+
+    .city-name {
+      flex: 1;
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .city-badge {
+      font-size: 10px;
+      color: var(--accent2);
+      background: rgba(255,107,157,.12);
+      border-radius: 10px;
+      padding: 1px 6px;
+      font-weight: 600;
+      display: none;
+    }
+    .city-badge.visible { display: inline; }
+
+    /* 县区列表 */
+    .county-list {
+      display: none;
+      background: rgba(0,0,0,.1);
+    }
+    .county-list.open { display: block; }
+
+    /* 县区行 */
+    .county-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px 6px 58px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(42,45,62,.2);
+      transition: background .15s;
+      user-select: none;
+    }
+    .county-row:hover { background: rgba(108,99,255,.06); }
+    .county-row.checked { background: rgba(108,99,255,.1); }
+
+    .county-checkbox {
+      width: 15px;
+      height: 15px;
+      border-radius: 4px;
+      border: 1.5px solid var(--panel-border);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all .15s;
+      font-size: 9px;
+      color: transparent;
+    }
+    .county-row.checked .county-checkbox {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .county-name {
+      font-size: 12px;
+      color: var(--text-dim);
+      flex: 1;
+    }
+    .county-row.checked .county-name {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    /* 空状态 */
+    .empty-hint {
+      padding: 24px 14px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    /* 加载占位 */
+    .loading-row {
+      padding: 10px 14px 10px 38px;
+      font-size: 12px;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mini-spinner {
+      width: 12px; height: 12px;
+      border: 2px solid var(--panel-border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      flex-shrink: 0;
+    }
+
+    /* ===== 地图区域 ===== */
+    #map-wrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ===== 侧边栏切换按钮（地图边缘）===== */
+    #sidebar-toggle {
+      position: absolute;
+      top: 50%;
+      left: 0;
+      transform: translateY(-50%);
+      z-index: 300;
+      width: 20px;
+      height: 52px;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-left: none;
+      border-radius: 0 8px 8px 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      font-size: 11px;
+      transition: background .2s, color .2s;
+      box-shadow: 2px 0 8px rgba(0,0,0,.3);
+    }
+    #sidebar-toggle:hover {
+      background: rgba(108,99,255,.15);
+      color: var(--accent);
+    }
+
+    /* ===== 信息浮层 ===== */
+    #info-panel {
+      position: absolute;
+      bottom: 28px;
+      left: 30px;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      min-width: 200px;
+      box-shadow: var(--shadow);
+      z-index: 200;
+      transition: opacity .3s, transform .3s;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    #info-panel.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+    #info-panel .region-name {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    #info-panel .region-meta {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+    }
+    #info-panel .toggle-btn {
+      width: 100%;
+      padding: 8px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    #info-panel .toggle-btn.add {
+      background: linear-gradient(135deg, var(--accent), #897bff);
+      color: #fff;
+      box-shadow: 0 4px 16px var(--accent-glow);
+    }
+    #info-panel .toggle-btn.add:hover { filter: brightness(1.15); }
+    #info-panel .toggle-btn.remove {
+      background: rgba(255,77,109,.15);
+      color: #ff4d6d;
+      border: 1px solid rgba(255,77,109,.3);
+    }
+    #info-panel .toggle-btn.remove:hover { background: rgba(255,77,109,.25); }
+
+    /* ===== Toast ===== */
+    #toast {
+      position: fixed;
+      top: 62px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-12px);
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 24px;
+      padding: 8px 18px;
+      font-size: 13px;
+      color: var(--text);
+      box-shadow: var(--shadow);
+      z-index: 9999;
+      opacity: 0;
+      transition: opacity .3s, transform .3s;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ===== 加载遮罩 ===== */
+    #loading {
+      position: absolute;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 999;
+      transition: opacity .5s;
+    }
+    #loading.hide { opacity: 0; pointer-events: none; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid var(--panel-border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { font-size: 14px; color: var(--text-dim); }
+
+    /* ===== 提示 ===== */
+    #hint {
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(26,29,39,.85);
+      border: 1px solid var(--panel-border);
+      border-radius: 20px;
+      padding: 6px 16px;
+      font-size: 12px;
+      color: var(--text-dim);
+      z-index: 200;
+      backdrop-filter: blur(8px);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* ===== 图例 ===== */
+    #legend {
+      position: absolute;
+      bottom: 28px;
+      right: 16px;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      z-index: 200;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    #legend .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 5px;
+    }
+    #legend .legend-item:last-child { margin-bottom: 0; }
+    #legend .dot {
+      width: 14px; height: 14px;
+      border-radius: 3px;
+      border: 1.5px solid;
+      flex-shrink: 0;
+    }
+    #legend .dot.visited { background: var(--mark-fill); border-color: var(--mark-stroke); }
+    #legend .dot.hover   { background: var(--hover-fill);  border-color: var(--hover-stroke); }
+
+    /* ===== 移动端抽屉 ===== */
+    @media (max-width: 768px) {
+      :root { --sidebar-w: 100vw; }
+
+      #content { position: relative; }
+
+      #sidebar {
+        position: absolute;
+        top: 0; left: 0; bottom: 0;
+        width: 85vw !important;
+        max-width: 340px;
+        transform: translateX(-100%);
+        transition: transform .3s ease, opacity .3s ease;
+        opacity: 1 !important;
+        pointer-events: none;
+        z-index: 400;
+        box-shadow: 4px 0 24px rgba(0,0,0,.6);
+      }
+      #sidebar.mobile-open {
+        transform: translateX(0);
+        pointer-events: auto;
+      }
+      #sidebar.collapsed {
+        width: 85vw !important;
+        opacity: 1 !important;
+      }
+
+      #mobile-overlay {
+        display: none;
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,.5);
+        z-index: 390;
+        backdrop-filter: blur(2px);
+      }
+      #mobile-overlay.visible { display: block; }
+
+      #sidebar-toggle { display: none; }
+
+      #btn-sidebar-mobile {
+        display: inline-flex !important;
+      }
+
+      #header h1 { font-size: 14px; }
+      .stat-badge { min-width: 50px; padding: 4px 9px; }
+      .stat-badge .num { font-size: 16px; }
+      .btn span.hide-mobile { display: none; }
+      #info-panel { left: 10px; right: 10px; bottom: 16px; min-width: unset; }
+      #legend { display: none; }
+      #hint { font-size: 11px; top: 10px; }
+    }
+
+    #btn-sidebar-mobile { display: none; }
+
+    /* 进度条（省份内完成度）*/
+    .prov-progress {
+      height: 2px;
+      background: var(--panel-border);
+      border-radius: 1px;
+      margin: 0 14px 0 38px;
+      overflow: hidden;
+    }
+    .prov-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 1px;
+      transition: width .4s ease;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <!-- 顶部标题栏 -->
+  <header id="header">
+    <span class="logo">🗺️</span>
+    <h1>我的足迹地图</h1>
+    <div class="spacer"></div>
+
+    <!-- 统计徽章 -->
+    <div class="stat-badge">
+      <span class="num" id="county-count">0</span>
+      <span class="lbl">县/区</span>
+    </div>
+    <div class="stat-badge">
+      <span class="num" id="city-count">0</span>
+      <span class="lbl">城市</span>
+    </div>
+    <div class="stat-badge">
+      <span class="num" id="province-count">0</span>
+      <span class="lbl">省份</span>
+    </div>
+
+    <!-- 侧边栏切换（桌面端） -->
+    <button class="btn" id="btn-sidebar" title="切换选择面板">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <line x1="9" y1="3" x2="9" y2="21"/>
+      </svg>
+      <span>面板</span>
+    </button>
+
+    <!-- 移动端侧边栏按钮 -->
+    <button class="btn" id="btn-sidebar-mobile" title="打开选择面板">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="3" y1="6" x2="21" y2="6"/>
+        <line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+      <span>选择</span>
+    </button>
+
+    <!-- 清除按钮 -->
+    <button class="btn danger" id="btn-clear" title="清除所有足迹">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="3 6 5 6 21 6"/>
+        <path d="M19 6l-1 14H6L5 6"/>
+        <path d="M10 11v6M14 11v6"/>
+        <path d="M9 6V4h6v2"/>
+      </svg>
+      <span class="hide-mobile">清除</span>
+    </button>
+  </header>
+
+  <!-- 内容区 -->
+  <div id="content">
+    <!-- 省市县三级联动侧边栏 -->
+    <aside id="sidebar">
+      <div id="sidebar-header">
+        <h2>📍 省市县选择</h2>
+        <div id="search-wrap">
+          <input type="text" id="search-input" placeholder="搜索县/区名称…" autocomplete="off" />
+          <button id="search-clear">×</button>
+        </div>
+      </div>
+      <div id="sidebar-body">
+        <!-- 搜索结果（搜索时显示） -->
+        <div id="search-results"></div>
+        <!-- 省份树（正常状态显示） -->
+        <div id="province-tree">
+          <div class="empty-hint">加载行政区划中…</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 地图区域 -->
+    <div id="map-wrap">
+      <!-- 移动端遮罩 -->
+      <div id="mobile-overlay"></div>
+
+      <!-- 侧边栏展开/收起按钮（地图边缘，桌面端） -->
+      <button id="sidebar-toggle" title="展开/收起面板">›</button>
+
+      <!-- 加载遮罩 -->
+      <div id="loading">
+        <div class="spinner"></div>
+        <p>地图加载中…</p>
+      </div>
+
+      <!-- 操作提示 -->
+      <div id="hint">💡 点击地图标记足迹，或使用左侧面板选择</div>
+
+      <!-- 地图 -->
+      <div id="map"></div>
+
+      <!-- 信息浮层 -->
+      <div id="info-panel">
+        <div class="region-name" id="region-name">—</div>
+        <div class="region-meta" id="region-meta">—</div>
+        <button class="toggle-btn add" id="toggle-btn">标记已到访</button>
+      </div>
+
+      <!-- 图例 -->
+      <div id="legend">
+        <div class="legend-item">
+          <div class="dot visited"></div>
+          <span>已到访</span>
+        </div>
+        <div class="legend-item">
+          <div class="dot hover"></div>
+          <span>当前选中</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast 通知 -->
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+/* ============================================================
+   足迹地图 — 省市县三级联动版
+   ============================================================ */
+
+// ===== 中国行政区划数据（省级）=====
+// adcode: 6位，省用前2位+0000, 市用前4位+00, 县直接6位
+const PROVINCES = [
+  { name: '北京市',   adcode: '110000', short: '京' },
+  { name: '天津市',   adcode: '120000', short: '津' },
+  { name: '河北省',   adcode: '130000', short: '冀' },
+  { name: '山西省',   adcode: '140000', short: '晋' },
+  { name: '内蒙古自治区', adcode: '150000', short: '蒙' },
+  { name: '辽宁省',   adcode: '210000', short: '辽' },
+  { name: '吉林省',   adcode: '220000', short: '吉' },
+  { name: '黑龙江省', adcode: '230000', short: '黑' },
+  { name: '上海市',   adcode: '310000', short: '沪' },
+  { name: '江苏省',   adcode: '320000', short: '苏' },
+  { name: '浙江省',   adcode: '330000', short: '浙' },
+  { name: '安徽省',   adcode: '340000', short: '皖' },
+  { name: '福建省',   adcode: '350000', short: '闽' },
+  { name: '江西省',   adcode: '360000', short: '赣' },
+  { name: '山东省',   adcode: '370000', short: '鲁' },
+  { name: '河南省',   adcode: '410000', short: '豫' },
+  { name: '湖北省',   adcode: '420000', short: '鄂' },
+  { name: '湖南省',   adcode: '430000', short: '湘' },
+  { name: '广东省',   adcode: '440000', short: '粤' },
+  { name: '广西壮族自治区', adcode: '450000', short: '桂' },
+  { name: '海南省',   adcode: '460000', short: '琼' },
+  { name: '重庆市',   adcode: '500000', short: '渝' },
+  { name: '四川省',   adcode: '510000', short: '川' },
+  { name: '贵州省',   adcode: '520000', short: '黔' },
+  { name: '云南省',   adcode: '530000', short: '滇' },
+  { name: '西藏自治区', adcode: '540000', short: '藏' },
+  { name: '陕西省',   adcode: '610000', short: '陕' },
+  { name: '甘肃省',   adcode: '620000', short: '甘' },
+  { name: '青海省',   adcode: '630000', short: '青' },
+  { name: '宁夏回族自治区', adcode: '640000', short: '宁' },
+  { name: '新疆维吾尔自治区', adcode: '650000', short: '新' },
+  { name: '台湾省',   adcode: '710000', short: '台' },
+  { name: '香港特别行政区', adcode: '810000', short: '港' },
+  { name: '澳门特别行政区', adcode: '820000', short: '澳' },
+];
+
+// ===== 状态管理 =====
+const STATE = {
+  visited:     new Set(JSON.parse(localStorage.getItem('footprint_visited') || '[]')),
+  adcodeInfo:  JSON.parse(localStorage.getItem('footprint_info') || '{}'),
+  polygons:    new Map(),   // adcode -> AMap.Polygon[]
+  hoverPoly:   null,
+  currentAdcode: null,
+  map:         null,
+  districtSearch: null,
+  geocoder:    null,
+
+  // 侧边栏缓存
+  cityCache:   {},   // provAdcode -> [{name, adcode}]
+  countyCache: {},   // cityAdcode -> [{name, adcode}]
+  loadingCities:   new Set(),
+  loadingCounties: new Set(),
+
+  sidebarOpen: true,   // 桌面端
+  mobileOpen:  false,  // 移动端
+};
+
+// ===== 持久化 =====
+function saveState() {
+  localStorage.setItem('footprint_visited', JSON.stringify([...STATE.visited]));
+  localStorage.setItem('footprint_info',    JSON.stringify(STATE.adcodeInfo));
+}
+
+// ===== 统计更新 =====
+function updateStats() {
+  document.getElementById('county-count').textContent = STATE.visited.size;
+
+  const cities = new Set();
+  const provinces = new Set();
+  for (const code of STATE.visited) {
+    const info = STATE.adcodeInfo[code];
+    if (info?.cityAdcode)    cities.add(info.cityAdcode);
+    if (info?.provinceAdcode) provinces.add(info.provinceAdcode);
+    else if (info?.province)  provinces.add(info.province);
+  }
+  document.getElementById('city-count').textContent = cities.size;
+  document.getElementById('province-count').textContent = provinces.size;
+}
+
+// ===== Toast =====
+let toastTimer;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+// ===== Polygon 样式 =====
+const STYLE_VISITED = {
+  fillColor: '#6c63ff', fillOpacity: 0.42,
+  strokeColor: '#6c63ff', strokeWeight: 2, strokeOpacity: 0.9,
+};
+const STYLE_SELECTED = {
+  fillColor: '#ff6b9d', fillOpacity: 0.45,
+  strokeColor: '#ff6b9d', strokeWeight: 2.5, strokeOpacity: 1,
+};
+
+function drawVisitedPolygon(adcode, boundaries) {
+  if (STATE.polygons.has(adcode)) {
+    STATE.map.remove(STATE.polygons.get(adcode));
+    STATE.polygons.delete(adcode);
+  }
+  const polys = boundaries.map(path => {
+    const p = new AMap.Polygon({ path, ...STYLE_VISITED, zIndex: 10, cursor: 'pointer' });
+    p._adcode = adcode;
+    p.on('click', (e) => { e.originEvent.stopPropagation(); selectRegionByAdcode(adcode); });
+    return p;
+  });
+  STATE.map.add(polys);
+  STATE.polygons.set(adcode, polys);
+}
+
+function removeVisitedPolygon(adcode) {
+  if (STATE.polygons.has(adcode)) {
+    STATE.map.remove(STATE.polygons.get(adcode));
+    STATE.polygons.delete(adcode);
+  }
+}
+
+function clearHoverPoly() {
+  if (STATE.hoverPoly) { STATE.map.remove(STATE.hoverPoly); STATE.hoverPoly = null; }
+}
+
+function drawSelectionPoly(boundaries) {
+  clearHoverPoly();
+  const polys = boundaries.map(path => new AMap.Polygon({
+    path, ...STYLE_SELECTED, zIndex: 12, cursor: 'pointer',
+  }));
+  STATE.map.add(polys);
+  STATE.hoverPoly = polys;
+}
+
+// ===== 信息浮层 =====
+function updateInfoPanel(name, meta, adcode) {
+  document.getElementById('region-name').textContent = name;
+  document.getElementById('region-meta').textContent = meta;
+  const btn = document.getElementById('toggle-btn');
+  const isVisited = STATE.visited.has(adcode);
+  btn.textContent = isVisited ? '取消标记' : '标记已到访';
+  btn.className = 'toggle-btn ' + (isVisited ? 'remove' : 'add');
+  document.getElementById('info-panel').classList.add('show');
+}
+
+function hideInfoPanel() {
+  document.getElementById('info-panel').classList.remove('show');
+  clearHoverPoly();
+  STATE.currentAdcode = null;
+}
+
+// ===== 通过adcode选中区域 =====
+function selectRegionByAdcode(adcode) {
+  const info = STATE.adcodeInfo[adcode];
+  if (!info) return;
+  STATE.currentAdcode = adcode;
+  STATE.districtSearch.search(adcode, (status, result) => {
+    if (status !== 'complete') return;
+    const district = result.districtList[0];
+    if (!district?.boundaries?.length) return;
+    drawSelectionPoly(district.boundaries);
+    const metaText = [info.province, info.city].filter(Boolean).join(' · ');
+    updateInfoPanel(info.name, metaText || '中国', adcode);
+  });
+}
+
+// ===== 地图点击 =====
+function onMapClick(e) {
+  const lnglat = e.lnglat;
+  hideInfoPanel();
+
+  STATE.geocoder.getAddress(lnglat, (status, result) => {
+    if (status !== 'complete' || result.info !== 'OK') {
+      showToast('⚠️ 无法识别该位置，请点击中国大陆范围内');
+      return;
+    }
+    const comp = result.regeocode.addressComponent;
+    const adcode = comp.adcode;
+
+    if (!adcode || adcode === '000000') {
+      showToast('⚠️ 未能识别所在行政区，换个位置试试');
+      return;
+    }
+
+    STATE.currentAdcode = adcode;
+    STATE.adcodeInfo[adcode] = {
+      name:          comp.district || comp.city || comp.province,
+      province:      comp.province,
+      city:          comp.city || comp.province,
+      provinceAdcode: adcode.slice(0, 2) + '0000',
+      cityAdcode:    adcode.slice(0, 4) + '00',
+    };
+    saveState();
+
+    STATE.districtSearch.search(adcode, (dstatus, dresult) => {
+      if (dstatus !== 'complete') { showToast('⚠️ 获取区域边界失败'); return; }
+      const district = dresult.districtList[0];
+      if (!district?.boundaries?.length) return;
+
+      STATE.adcodeInfo[adcode].name = district.name;
+      saveState();
+
+      drawSelectionPoly(district.boundaries);
+
+      const meta = [comp.province, comp.city].filter(v => v && v !== district.name).join(' · ');
+      updateInfoPanel(district.name, meta || comp.province || '中国', adcode);
+      updateStats();
+      // 同步侧边栏勾选状态
+      syncSidebarCheckbox(adcode);
+    });
+  });
+}
+
+// ===== 标记/取消标记（核心逻辑）=====
+function setVisited(adcode, visited, silent = false) {
+  const info = STATE.adcodeInfo[adcode];
+  const name = info?.name || adcode;
+
+  if (visited) {
+    if (STATE.visited.has(adcode)) return; // 已标记，无需操作
+    STATE.visited.add(adcode);
+    STATE.districtSearch.search(adcode, (status, result) => {
+      if (status === 'complete' && result.districtList[0]) {
+        drawVisitedPolygon(adcode, result.districtList[0].boundaries);
+      }
+    });
+    if (!silent) showToast(`🎉 已标记 ${name}！`);
+  } else {
+    if (!STATE.visited.has(adcode)) return; // 未标记，无需操作
+    STATE.visited.delete(adcode);
+    removeVisitedPolygon(adcode);
+    if (!silent) showToast(`已取消 ${name} 的足迹标记`);
+  }
+
+  saveState();
+  updateStats();
+  syncSidebarCheckbox(adcode);
+
+  // 更新信息面板按钮
+  if (STATE.currentAdcode === adcode) {
+    const btn = document.getElementById('toggle-btn');
+    btn.textContent = visited ? '取消标记' : '标记已到访';
+    btn.className = 'toggle-btn ' + (visited ? 'remove' : 'add');
+  }
+}
+
+function toggleVisited() {
+  const adcode = STATE.currentAdcode;
+  if (!adcode) return;
+  setVisited(adcode, !STATE.visited.has(adcode));
+}
+
+// ===== 清除所有 =====
+function clearAll() {
+  if (STATE.visited.size === 0) { showToast('还没有任何足迹记录'); return; }
+  if (!confirm(`确认清除全部 ${STATE.visited.size} 条足迹记录？此操作不可撤销。`)) return;
+  STATE.visited.clear();
+  STATE.adcodeInfo = {};
+  STATE.polygons.forEach(polys => STATE.map.remove(polys));
+  STATE.polygons.clear();
+  hideInfoPanel();
+  saveState();
+  updateStats();
+  refreshAllSidebarCheckboxes();
+  showToast('已清除所有足迹记录');
+}
+
+// ===== 恢复已保存足迹 =====
+function restoreVisited() {
+  const total = STATE.visited.size;
+  if (total === 0) return;
+  let loaded = 0;
+  for (const adcode of STATE.visited) {
+    STATE.districtSearch.search(adcode, (status, result) => {
+      loaded++;
+      if (status === 'complete' && result.districtList[0]) {
+        drawVisitedPolygon(adcode, result.districtList[0].boundaries);
+      }
+      if (loaded === total) showToast(`✅ 已恢复 ${total} 条足迹记录`);
+    });
+  }
+}
+
+/* ============================================================
+   侧边栏 — 省市县三级联动
+   ============================================================ */
+
+// ===== 渲染省份列表 =====
+function renderProvinceTree() {
+  const tree = document.getElementById('province-tree');
+  tree.innerHTML = '';
+
+  PROVINCES.forEach(prov => {
+    // 省份行
+    const row = document.createElement('div');
+    row.className = 'prov-row';
+    row.dataset.adcode = prov.adcode;
+    row.innerHTML = `
+      <span class="prov-arrow">›</span>
+      <span class="prov-name">${prov.name}</span>
+      <span class="prov-badge" id="pbadge-${prov.adcode}"></span>
+    `;
+
+    // 城市列表容器
+    const cityList = document.createElement('div');
+    cityList.className = 'city-list';
+    cityList.id = `cities-${prov.adcode}`;
+
+    row.addEventListener('click', () => toggleProvince(prov, row, cityList));
+
+    tree.appendChild(row);
+    tree.appendChild(cityList);
+  });
+
+  // 初始化省份徽章（已访问数）
+  refreshProvinceBadges();
+}
+
+// ===== 展开/收起省份 =====
+function toggleProvince(prov, row, cityList) {
+  const isOpen = row.classList.contains('open');
+
+  // 收起其他省份（可选，保持只展开一个）
+  // 为了用户体验允许多个展开，所以不收起
+
+  if (isOpen) {
+    row.classList.remove('open', 'active');
+    cityList.classList.remove('open');
+    return;
+  }
+
+  row.classList.add('open', 'active');
+  cityList.classList.add('open');
+
+  // 如果已有缓存，直接渲染
+  if (STATE.cityCache[prov.adcode]) {
+    renderCities(prov, cityList);
+    return;
+  }
+
+  // 否则通过 DistrictSearch 加载
+  if (STATE.loadingCities.has(prov.adcode)) return;
+  STATE.loadingCities.add(prov.adcode);
+
+  cityList.innerHTML = '<div class="loading-row"><div class="mini-spinner"></div>加载中…</div>';
+
+  const ds = new AMap.DistrictSearch({ subdistrict: 1, extensions: 'base', level: 'province' });
+  ds.search(prov.adcode, (status, result) => {
+    STATE.loadingCities.delete(prov.adcode);
+    if (status !== 'complete' || !result.districtList?.[0]) {
+      cityList.innerHTML = '<div class="empty-hint">加载失败，请重试</div>';
+      return;
+    }
+    const sub = result.districtList[0].districtList || [];
+    STATE.cityCache[prov.adcode] = sub.map(d => ({
+      name: d.name,
+      adcode: d.adcode,
+    }));
+    renderCities(prov, cityList);
+  });
+}
+
+// ===== 渲染城市列表 =====
+function renderCities(prov, container) {
+  const cities = STATE.cityCache[prov.adcode] || [];
+  container.innerHTML = '';
+
+  if (!cities.length) {
+    container.innerHTML = '<div class="empty-hint">暂无下级区划</div>';
+    return;
+  }
+
+  cities.forEach(city => {
+    const row = document.createElement('div');
+    row.className = 'city-row';
+    row.dataset.adcode = city.adcode;
+    row.innerHTML = `
+      <span class="city-arrow">›</span>
+      <span class="city-name">${city.name}</span>
+      <span class="city-badge" id="cbadge-${city.adcode}"></span>
+    `;
+
+    const countyList = document.createElement('div');
+    countyList.className = 'county-list';
+    countyList.id = `counties-${city.adcode}`;
+
+    row.addEventListener('click', () => toggleCity(prov, city, row, countyList));
+
+    container.appendChild(row);
+    container.appendChild(countyList);
+  });
+
+  refreshCityBadges(prov.adcode);
+}
+
+// ===== 展开/收起城市 =====
+function toggleCity(prov, city, row, countyList) {
+  const isOpen = row.classList.contains('open');
+
+  if (isOpen) {
+    row.classList.remove('open', 'active');
+    countyList.classList.remove('open');
+    return;
+  }
+
+  row.classList.add('open', 'active');
+  countyList.classList.add('open');
+
+  if (STATE.countyCache[city.adcode]) {
+    renderCounties(prov, city, countyList);
+    return;
+  }
+
+  if (STATE.loadingCounties.has(city.adcode)) return;
+  STATE.loadingCounties.add(city.adcode);
+
+  countyList.innerHTML = '<div class="loading-row"><div class="mini-spinner"></div>加载中…</div>';
+
+  const ds = new AMap.DistrictSearch({ subdistrict: 1, extensions: 'base', level: 'city' });
+  ds.search(city.adcode, (status, result) => {
+    STATE.loadingCounties.delete(city.adcode);
+    if (status !== 'complete' || !result.districtList?.[0]) {
+      countyList.innerHTML = '<div class="empty-hint">加载失败，请重试</div>';
+      return;
+    }
+    const sub = result.districtList[0].districtList || [];
+    STATE.countyCache[city.adcode] = sub.map(d => ({
+      name: d.name,
+      adcode: d.adcode,
+    }));
+    // 缓存 adcodeInfo（确保 province/city/adcode 关系已知）
+    sub.forEach(d => {
+      if (!STATE.adcodeInfo[d.adcode]) {
+        STATE.adcodeInfo[d.adcode] = {
+          name:           d.name,
+          province:       prov.name,
+          city:           city.name,
+          provinceAdcode: prov.adcode,
+          cityAdcode:     city.adcode,
+        };
+      }
+    });
+    saveState();
+    renderCounties(prov, city, countyList);
+  });
+}
+
+// ===== 渲染县区列表 =====
+function renderCounties(prov, city, container) {
+  const counties = STATE.countyCache[city.adcode] || [];
+  container.innerHTML = '';
+
+  if (!counties.length) {
+    container.innerHTML = '<div class="empty-hint">暂无下级区划</div>';
+    return;
+  }
+
+  // 进度条
+  const progress = document.createElement('div');
+  progress.className = 'prov-progress';
+  progress.innerHTML = `<div class="prov-progress-bar" id="prog-${city.adcode}" style="width:0%"></div>`;
+  container.appendChild(progress);
+
+  counties.forEach(county => {
+    const isChecked = STATE.visited.has(county.adcode);
+    const row = document.createElement('div');
+    row.className = 'county-row' + (isChecked ? ' checked' : '');
+    row.id = `county-row-${county.adcode}`;
+    row.dataset.adcode = county.adcode;
+    row.innerHTML = `
+      <div class="county-checkbox">${isChecked ? '✓' : ''}</div>
+      <span class="county-name">${county.name}</span>
+    `;
+
+    row.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onCountyToggle(prov, city, county, row);
+    });
+
+    container.appendChild(row);
+  });
+
+  updateCityProgress(city.adcode);
+}
+
+// ===== 县区勾选操作 =====
+function onCountyToggle(prov, city, county, row) {
+  // 确保 adcodeInfo 中有该县的信息
+  if (!STATE.adcodeInfo[county.adcode]) {
+    STATE.adcodeInfo[county.adcode] = {
+      name:           county.name,
+      province:       prov.name,
+      city:           city.name,
+      provinceAdcode: prov.adcode,
+      cityAdcode:     city.adcode,
+    };
+  }
+
+  const newVisited = !STATE.visited.has(county.adcode);
+  setVisited(county.adcode, newVisited);
+
+  // 更新进度条
+  updateCityProgress(city.adcode);
+  refreshCityBadges(prov.adcode);
+  refreshProvinceBadge(prov.adcode);
+}
+
+// ===== 同步侧边栏勾选状态（地图点击标记时调用）=====
+function syncSidebarCheckbox(adcode) {
+  const row = document.getElementById(`county-row-${adcode}`);
+  if (!row) return;
+  const isChecked = STATE.visited.has(adcode);
+  row.classList.toggle('checked', isChecked);
+  row.querySelector('.county-checkbox').textContent = isChecked ? '✓' : '';
+
+  // 更新对应城市进度
+  const info = STATE.adcodeInfo[adcode];
+  if (info?.cityAdcode) {
+    updateCityProgress(info.cityAdcode);
+    refreshCityBadge(info.cityAdcode);
+  }
+  if (info?.provinceAdcode) {
+    refreshProvinceBadge(info.provinceAdcode);
+  }
+}
+
+// ===== 刷新所有侧边栏勾选（clearAll 时调用）=====
+function refreshAllSidebarCheckboxes() {
+  document.querySelectorAll('.county-row').forEach(row => {
+    const adcode = row.dataset.adcode;
+    const isChecked = STATE.visited.has(adcode);
+    row.classList.toggle('checked', isChecked);
+    row.querySelector('.county-checkbox').textContent = isChecked ? '✓' : '';
+  });
+  document.querySelectorAll('.prov-progress-bar').forEach(bar => bar.style.width = '0%');
+  refreshProvinceBadges();
+  document.querySelectorAll('.city-badge').forEach(b => { b.textContent = ''; b.classList.remove('visible'); });
+}
+
+// ===== 省份徽章（已到县数）=====
+function refreshProvinceBadge(provAdcode) {
+  const badge = document.getElementById(`pbadge-${provAdcode}`);
+  if (!badge) return;
+  let count = 0;
+  for (const adcode of STATE.visited) {
+    const info = STATE.adcodeInfo[adcode];
+    if (info?.provinceAdcode === provAdcode) count++;
+  }
+  if (count > 0) {
+    badge.textContent = count;
+    badge.classList.add('visible');
+  } else {
+    badge.textContent = '';
+    badge.classList.remove('visible');
+  }
+}
+
+function refreshProvinceBadges() {
+  PROVINCES.forEach(p => refreshProvinceBadge(p.adcode));
+}
+
+// ===== 城市徽章 =====
+function refreshCityBadge(cityAdcode) {
+  const badge = document.getElementById(`cbadge-${cityAdcode}`);
+  if (!badge) return;
+  let count = 0;
+  for (const adcode of STATE.visited) {
+    const info = STATE.adcodeInfo[adcode];
+    if (info?.cityAdcode === cityAdcode) count++;
+  }
+  if (count > 0) {
+    badge.textContent = count;
+    badge.classList.add('visible');
+  } else {
+    badge.textContent = '';
+    badge.classList.remove('visible');
+  }
+}
+
+function refreshCityBadges(provAdcode) {
+  const cities = STATE.cityCache[provAdcode] || [];
+  cities.forEach(c => refreshCityBadge(c.adcode));
+}
+
+// ===== 城市进度条 =====
+function updateCityProgress(cityAdcode) {
+  const bar = document.getElementById(`prog-${cityAdcode}`);
+  if (!bar) return;
+  const counties = STATE.countyCache[cityAdcode] || [];
+  if (!counties.length) return;
+  const visited = counties.filter(c => STATE.visited.has(c.adcode)).length;
+  bar.style.width = `${Math.round(visited / counties.length * 100)}%`;
+}
+
+/* ============================================================
+   搜索功能
+   ============================================================ */
+
+let searchDebounce = null;
+
+function onSearchInput(e) {
+  const q = e.target.value.trim();
+  const clearBtn = document.getElementById('search-clear');
+  const resultsEl = document.getElementById('search-results');
+  const treeEl = document.getElementById('province-tree');
+
+  clearBtn.classList.toggle('visible', q.length > 0);
+
+  if (!q) {
+    resultsEl.classList.remove('visible');
+    treeEl.style.display = '';
+    return;
+  }
+
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => doSearch(q), 300);
+}
+
+function doSearch(q) {
+  const resultsEl = document.getElementById('search-results');
+  const treeEl = document.getElementById('province-tree');
+
+  // 搜索 adcodeInfo 中已缓存的县区
+  const results = [];
+  const seen = new Set();
+  const qLower = q.toLowerCase();
+
+  // 先搜 countyCache
+  for (const [cityAdcode, counties] of Object.entries(STATE.countyCache)) {
+    for (const county of counties) {
+      if (seen.has(county.adcode)) continue;
+      if (county.name.includes(q)) {
+        seen.add(county.adcode);
+        const info = STATE.adcodeInfo[county.adcode];
+        results.push({
+          adcode:  county.adcode,
+          name:    county.name,
+          path:    info ? `${info.province} · ${info.city}` : '',
+          checked: STATE.visited.has(county.adcode),
+        });
+      }
+    }
+  }
+
+  // 如果本地缓存不足，通过 DistrictSearch 查一次
+  if (results.length < 5) {
+    const ds = new AMap.DistrictSearch({ subdistrict: 0, extensions: 'base', level: 'district' });
+    ds.search(q, (status, result) => {
+      if (status !== 'complete') return;
+      (result.districtList || []).forEach(d => {
+        if (seen.has(d.adcode)) return;
+        seen.add(d.adcode);
+        results.push({
+          adcode:  d.adcode,
+          name:    d.name,
+          path:    '', // 无 province/city 信息
+          checked: STATE.visited.has(d.adcode),
+        });
+      });
+      renderSearchResults(results);
+    });
+  }
+
+  renderSearchResults(results);
+
+  resultsEl.classList.add('visible');
+  treeEl.style.display = 'none';
+}
+
+function renderSearchResults(results) {
+  const el = document.getElementById('search-results');
+  if (!results.length) {
+    el.innerHTML = '<div class="empty-hint">没有找到匹配的县/区</div>';
+    return;
+  }
+
+  el.innerHTML = results.slice(0, 30).map(r => `
+    <div class="search-item ${r.checked ? 'checked' : ''}" data-adcode="${r.adcode}" id="sr-${r.adcode}">
+      <div class="s-check">${r.checked ? '✓' : ''}</div>
+      <span class="s-name">${r.name}</span>
+      <span class="s-path">${r.path}</span>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('.search-item').forEach(item => {
+    item.addEventListener('click', () => onSearchItemClick(item));
+  });
+}
+
+function onSearchItemClick(item) {
+  const adcode = item.dataset.adcode;
+  const isChecked = STATE.visited.has(adcode);
+
+  if (!STATE.adcodeInfo[adcode]) {
+    // 没有缓存，先通过 DistrictSearch 获取信息
+    const ds = new AMap.DistrictSearch({ subdistrict: 0, extensions: 'base', level: 'district' });
+    ds.search(adcode, (status, result) => {
+      if (status === 'complete' && result.districtList?.[0]) {
+        const d = result.districtList[0];
+        STATE.adcodeInfo[adcode] = {
+          name:           d.name,
+          province:       '',
+          city:           '',
+          provinceAdcode: adcode.slice(0, 2) + '0000',
+          cityAdcode:     adcode.slice(0, 4) + '00',
+        };
+      }
+      setVisited(adcode, !isChecked);
+      refreshSearchItemState(adcode, !isChecked);
+    });
+  } else {
+    setVisited(adcode, !isChecked);
+    refreshSearchItemState(adcode, !isChecked);
+  }
+
+  // 地图上定位
+  selectRegionByAdcode(adcode);
+}
+
+function refreshSearchItemState(adcode, isChecked) {
+  const item = document.getElementById(`sr-${adcode}`);
+  if (!item) return;
+  item.classList.toggle('checked', isChecked);
+  item.querySelector('.s-check').textContent = isChecked ? '✓' : '';
+}
+
+function clearSearch() {
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-clear').classList.remove('visible');
+  document.getElementById('search-results').classList.remove('visible');
+  document.getElementById('province-tree').style.display = '';
+}
+
+/* ============================================================
+   侧边栏切换
+   ============================================================ */
+
+function isMobile() { return window.innerWidth <= 768; }
+
+function toggleSidebar() {
+  if (isMobile()) {
+    toggleMobileSidebar();
+  } else {
+    STATE.sidebarOpen = !STATE.sidebarOpen;
+    const sidebar = document.getElementById('sidebar');
+    const toggle  = document.getElementById('sidebar-toggle');
+    sidebar.classList.toggle('collapsed', !STATE.sidebarOpen);
+    toggle.textContent = STATE.sidebarOpen ? '‹' : '›';
+    document.getElementById('btn-sidebar').classList.toggle('active', STATE.sidebarOpen);
+  }
+}
+
+function toggleMobileSidebar() {
+  STATE.mobileOpen = !STATE.mobileOpen;
+  document.getElementById('sidebar').classList.toggle('mobile-open', STATE.mobileOpen);
+  document.getElementById('mobile-overlay').classList.toggle('visible', STATE.mobileOpen);
+}
+
+/* ============================================================
+   高德地图初始化
+   ============================================================ */
+
+function initMap() {
+  STATE.map = new AMap.Map('map', {
+    zoom: 5,
+    center: [105, 35],
+    mapStyle: 'amap://styles/dark',
+    viewMode: '2D',
+    lang: 'zh_cn',
+    cursor: 'crosshair',
+    showIndoorMap: false,
+  });
+
+  AMap.plugin(['AMap.DistrictSearch', 'AMap.Geocoder'], () => {
+    STATE.districtSearch = new AMap.DistrictSearch({
+      subdistrict: 0,
+      extensions: 'all',
+      level: 'district',
+    });
+
+    STATE.geocoder = new AMap.Geocoder({
+      radius: 1000,
+      extensions: 'all',
+    });
+
+    STATE.map.on('click', onMapClick);
+    STATE.map.on('rightclick', hideInfoPanel);
+
+    STATE.map.on('complete', () => {
+      document.getElementById('loading').classList.add('hide');
+      setTimeout(() => { document.getElementById('loading').style.display = 'none'; }, 600);
+      restoreVisited();
+      updateStats();
+      renderProvinceTree();
+    });
+  });
+}
+
+/* ============================================================
+   事件绑定
+   ============================================================ */
+
+document.getElementById('toggle-btn').addEventListener('click', toggleVisited);
+document.getElementById('btn-clear').addEventListener('click', clearAll);
+document.getElementById('btn-sidebar').addEventListener('click', toggleSidebar);
+document.getElementById('btn-sidebar-mobile').addEventListener('click', toggleSidebar);
+document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
+document.getElementById('search-input').addEventListener('input', onSearchInput);
+document.getElementById('search-clear').addEventListener('click', clearSearch);
+document.getElementById('mobile-overlay').addEventListener('click', () => {
+  STATE.mobileOpen = false;
+  document.getElementById('sidebar').classList.remove('mobile-open');
+  document.getElementById('mobile-overlay').classList.remove('visible');
+});
+
+// 初始化侧边栏切换按钮文字
+document.getElementById('sidebar-toggle').textContent = '‹';
+
+window.onload = initMap;
+</script>
+
+</body>
+</html>
