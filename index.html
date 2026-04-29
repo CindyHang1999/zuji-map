@@ -797,6 +797,7 @@ const S = {
   map: null,
   cityCache: {},
   countyCache: {},
+  featCache: {},   // 区县 GeoJSON 特征缓存
   loadingCities: new Set(),
   loadingCounties: new Set(),
   sidebarOpen: true,
@@ -979,6 +980,11 @@ function initMap() {
 // ===== DataV GeoJSON 获取 =====
 const geoCache = {};
 function fetchGeoJSON(adcode, cb) {
+  // 先查本地特征缓存（区县级）
+  if (S.featCache && S.featCache[adcode]) {
+    cb(S.featCache[adcode]);
+    return;
+  }
   if (geoCache[adcode]) { cb(geoCache[adcode]); return; }
   fetch(DATA_API + '/' + adcode + '_full.json')
     .then(r => r.json())
@@ -1052,6 +1058,12 @@ function toggleProvince(prov, row, cityList) {
     fetchGeoJSON(prov.adcode, data => {
       S.loadingCounties.delete(prov.adcode);
       const features = data.features || [];
+      features.forEach(f => {
+        const a = f.properties.adcode;
+        if (a && !S.featCache[a]) {
+          S.featCache[a] = { type: 'FeatureCollection', features: [f] };
+        }
+      });
       S.countyCache[prov.adcode] = features.map(f => ({
         adcode: f.properties.adcode,
         name: f.properties.name,
@@ -1133,6 +1145,13 @@ function toggleCity(prov, city, row, countyList) {
   fetchGeoJSON(city.adcode, data => {
     S.loadingCounties.delete(city.adcode);
     const features = data.features || [];
+    // 缓存每个区县的 GeoJSON 特征
+    features.forEach(f => {
+      const a = f.properties.adcode;
+      if (a && !S.featCache[a]) {
+        S.featCache[a] = { type: 'FeatureCollection', features: [f] };
+      }
+    });
     S.countyCache[city.adcode] = features.map(f => ({
       adcode: f.properties.adcode,
       name: f.properties.name,
