@@ -1036,7 +1036,7 @@ function renderProvinceTree() {
 // ===== 判断是否直辖市 =====
 function isDirectMunicipality(adcode) {
   const prefix = String(adcode).slice(0, 2);
-  return prefix === '11' || prefix === '12' || prefix === '31' || prefix === '50';
+  return prefix === '11' || prefix === '12' || prefix === '31' || prefix === '50' || prefix === '81' || prefix === '82';
 }
 
 // ===== 展开省份 =====
